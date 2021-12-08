@@ -1,6 +1,6 @@
 ---
 title: 'Data Exploration: The Political Psychology of COVID-19'
-author: "Your name here"
+author: "Luke Kolar"
 date: "November 30, 2021"
 output:
   pdf_document: default
@@ -74,10 +74,65 @@ In this paper, Bartusevicius et al. run a list experiment in which the control g
 # Part a
 **Estimate the proportion of respondents in the whole sample who agreed with the sensitive statement about being willing to use political violence.**
 
+```{r}
+
+ctrl_avg <- pull(covid_data %>% 
+  filter(!is.na(list_control)) %>% 
+  summarize(mean(list_control)))
+
+trt_avg <- pull(covid_data %>% 
+  filter(!is.na(list_treatment)) %>% 
+  summarize(mean(list_treatment)))
+
+trt_avg - ctrl_avg
+
+```
+
+**ANSWER:** *I would estimate that about 6.7% of respondents in the treatment group agreed with the sensitive statement.*
+
+
 # Part b
 It's useful to use this method to see if the proportion of people who agree with the sensitive statement is different among subsets of people who differ on a predictor variable of interest. In this case, we are interested in whether the psychological burden of COVID-19 is associated with increased willingness to use political violence.
 
 **Define an indicator variable that is TRUE if the respondent has a perceived COVID burden equal or higher to the median value in the sample and FALSE if it is less than the median value. Estimate the proportion of people who agree with the sensitive statement and have low perceived COVID burden and the proportion of people who agree with the sensitive statement and have high perceived COVID burden. Compare the two values and comment on what you find.**
+
+```{r}
+
+median <- pull(covid_data %>% 
+  summarize(median(covid_burden)))
+
+covid_data_rel <- covid_data %>% 
+  mutate(relative_burden = ifelse(covid_burden < median, FALSE, TRUE))
+
+View(covid_data_rel)
+
+ctrl_avg <- pull(covid_data_rel %>% 
+  filter(relative_burden == FALSE) %>% 
+  filter(!is.na(list_control)) %>% 
+  summarize(mean(list_control)))
+
+trt_avg <- pull(covid_data_rel %>% 
+  filter(relative_burden == FALSE) %>%  
+  filter(!is.na(list_treatment)) %>% 
+  summarize(mean(list_treatment)))
+
+trt_avg - ctrl_avg
+
+ctrl_avg <- pull(covid_data_rel %>% 
+  filter(relative_burden == TRUE) %>% 
+  filter(!is.na(list_control)) %>% 
+  summarize(mean(list_control)))
+
+trt_avg <- pull(covid_data_rel %>% 
+  filter(relative_burden == TRUE) %>%  
+  filter(!is.na(list_treatment)) %>% 
+  summarize(mean(list_treatment)))
+
+trt_avg - ctrl_avg
+
+```
+
+**ANSWER:** *There does appear to be a difference between the proportion of those with a lower relative COVID burden who agreed with the sensitive question - which I'd estimate to be 2.9% - and the proportion of those with a higher relative COVID burden who agreed - which I'd estimate to be 11.2%.*
 
 
 Now let's take some time to review several of the different visualization strategies we have used this semester.
@@ -85,6 +140,17 @@ Now let's take some time to review several of the different visualization strate
 ## Question 2
 
 Density plots are a good way to show the distribution of a variable of interest in a population. **Make a density plot with perceived COVID-19 burden as the variable of interest. Use different colors to simultaneously show the density of this variable in each country in the sample. Comment on any notable differences between countries.**
+
+```{r}
+
+ggplot(covid_data, aes(x = covid_burden, color = country)) + geom_density() + 
+  labs(title = "Psychological burden of COVID-19:\nDensity across samples from four countries",
+       x = "COVID burden (1 is lowest burden, 7 is highest)",
+       y = "Density",
+       color = "Country",
+       caption = "sample sizes: US - 1151, Italy - 1241, Denmark - 1286, Hungary - 890")
+
+```
 
 
 ## Question 3
@@ -104,6 +170,13 @@ This plot shows a clear positive relationship between COVID burden and radicalis
 # Part a
 **Graph bivariate linear regressions of radicalism intention on COVID burden for each country. Try to do this on a single plot instead of four different plots. Comment on what you find.** Note that you may not want to plot confidence intervals to avoid cluttering the plot.
 
+```{r}
+covid_data %>%
+  ggplot(mapping = aes(x = covid_burden, y = radical_intention, color = country)) + 
+  geom_smooth(method = 'lm', se = F)
+```
+
+
 
 # Part b
 **Fit a multivariate linear regression of radicalism intention on COVID burden with education, age, and gender as control variables. Use the complete sample; don't subset by country. Present the results in a regression table and comment on your findings. Make sure to comment on the main explanatory variable (COVID burden) but also comment on the control variables in the context of theories we have learned about in class.** Hint: The \texttt{stargazer} package makes good regression tables; set \texttt{type = 'text'}.
@@ -120,6 +193,38 @@ There are seven different outcome variables associated with respondents' activit
 
 ## Question 5: DATA SCIENCE QUESTION
 **Pick one of the outcomes associated with the BLM protests. Define a new binary variable that takes 1 if the respondent actually engaged in the behavior and 0 if they didn't engage in it or merely hypothetically would engage in it. Fit a regression model of your choosing with your new variable as the outcome, COVID burden as the independent variable, and control variables of your choosing. Plot the predicted probability of engaging in your chosen behavior as a function of COVID burden, holding other variables at their mean (or, for gender, making separate plots for each gender). Make sure to also plot 95\% confidence intervals.** Hint: look back at the solutions to Data Exercise 6 for ideas about how to code this.
+
+```{r}
+
+covid_data_new <- covid_data %>% 
+  filter(!is.na(confront_police)) %>% 
+  mutate(confronted_police = ifelse(confront_police < 2, 0, 1)) %>% 
+  select(gender, covid_burden, radical_intention, confronted_police) %>% 
+  mutate(gender = ifelse(gender == 0, "Female", "Male"))
+
+mod = lm(confronted_police ~ covid_burden + gender, data = covid_data_new)
+
+pred_data1 <- with(covid_data_new[covid_data_new$covid_burden >= 1, ], 
+                   data.frame(covid_burden = seq(1, 7, .01), gender = "Female"))
+
+pred_data2 <- with(covid_data_new[covid_data_new$covid_burden >= 1, ], 
+                   data.frame(covid_burden = seq(1, 7,.01), gender = "Male"))
+
+pred_data <- bind_rows(pred_data1, pred_data2)
+preds <- predict(mod, pred_data, type = "response", se.fit = T)
+preds_df <- data.frame(fit = preds$fit, se = preds$se.fit, 
+                       covid_burden = pred_data$covid_burden, gender = pred_data$gender)
+
+preds_df %>% ggplot(aes(x = covid_burden)) +
+  geom_line(aes(y = fit), col = "red") +
+  geom_line(aes(y = fit + 1.96 * se), col = "gray", lty = "dashed") +
+  geom_line(aes(y = fit - 1.96 * se), col = "gray", lty = "dashed") +
+  facet_wrap(~ gender) +
+  labs(x = "COVID burden (1 is lowest burden, 7 is highest)", 
+       y = "Proportion who confronted police", 
+       title = "Predicted Proportion of People Confrontation with Police Given COVID Burden")  
+
+```
 
 
 ## Question 6
